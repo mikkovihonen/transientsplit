@@ -17,11 +17,13 @@
 #   public/sdt-processor.wasm – WebAssembly binary
 # ─────────────────────────────────────────────────────────────────────────────
 
-set -euo pipefail
+# set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 SDT_DIR="$SCRIPT_DIR/SDT"
+JSONBUILDER_DIR="$SCRIPT_DIR/SDT/3rdparty/json-builder"
+JSONPARSER_DIR="$SCRIPT_DIR/SDT/3rdparty/json-parser"
 OUT_DIR="$REPO_ROOT/public"
 
 echo "==> Checking Emscripten..."
@@ -39,11 +41,11 @@ if [ -d "$SDT_DIR/.git" ]; then
     git -C "$SDT_DIR" pull --ff-only
 else
     # Adjust the URL/branch if the repo has moved
-    git clone --depth 1 https://github.com/SDT-org/SDT.git "$SDT_DIR"
+    git clone --recurse-submodules --filter=blob:none --also-filter-submodules git@github.com:SkAT-VG/SDT.git "$SDT_DIR"
 fi
 
 # ─── Locate SDT source files ─────────────────────────────────────────────────
-SDT_SRC="$SDT_DIR/src"
+SDT_SRC="$SDT_DIR/src/SDT"
 if [ ! -f "$SDT_SRC/SDTDemix.c" ]; then
     echo "ERROR: SDTDemix.c not found in $SDT_SRC"
     echo "       Check if the SDT repository structure has changed."
@@ -52,24 +54,27 @@ fi
 
 # Collect required C files (adjust list if SDT version differs)
 SDT_C_FILES=(
-    "$SDT_SRC/SDTCommon.c"
-    "$SDT_SRC/SDTDemix.c"
-    "$SDT_SRC/SDTFFT.c"
+    "$SDT_SRC/*.c"
 )
-
-# Optional files that may or may not exist depending on SDT version
-for optional in SDTAnalysis.c SDTSpectrum.c; do
-    [ -f "$SDT_SRC/$optional" ] && SDT_C_FILES+=("$SDT_SRC/$optional")
-done
 
 # ─── Compile ─────────────────────────────────────────────────────────────────
 mkdir -p "$OUT_DIR"
 
 echo "==> Compiling with Emscripten..."
+
+rm -f ./*.o
+for f in "$SDT_SRC"/*.c "$SCRIPT_DIR/sdt_wrapper.c" "$JSONBUILDER_DIR/json-builder.c" "$JSONPARSER_DIR/json.c"; do
+  emcc -I "$SDT_SRC/src/SDT" -I "$JSONBUILDER_DIR" -I "$JSONPARSER_DIR" -O3 -c "$f" -o "$(basename "$f").o"
+done
+
 emcc \
-    "${SDT_C_FILES[@]}" \
+    "$SDT_SRC"/*.c \
     "$SCRIPT_DIR/sdt_wrapper.c" \
-    -I "$SDT_SRC" \
+    "$JSONBUILDER_DIR/json-builder.c" \
+    "$JSONPARSER_DIR/json.c" \
+    -I "$JSONBUILDER_DIR" \
+    -I "$JSONPARSER_DIR" \
+    -I "$SDT_DIR/src/SDT" \
     -O3 \
     -lm \
     -s WASM=1 \

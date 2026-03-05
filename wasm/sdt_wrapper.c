@@ -1,121 +1,97 @@
-/**
- * Emscripten wrapper for the Sound Design Toolkit SDTDemix module.
- *
- * SDT repository: https://github.com/SDT-org/SDT
- * Clone it alongside this file before building (see build.sh).
- *
- * SDTDemix implements Harmonic-Percussive Source Separation (HPSS).
- * It separates an audio stream into:
- *   - Tonal  (harmonic / sustained) component
- *   - Transient (percussive / attack) component
- *
- * Build with:
- *   cd wasm && bash build.sh
- *
- * The compiled output (sdt-processor.js + sdt-processor.wasm) goes into
- * public/ so Vite serves it automatically.
- */
-
-#include <emscripten.h>
+// sdt_wrapper.c
 #include <stdlib.h>
 #include <string.h>
-#include <math.h>
 
-/* SDT headers – available after cloning the repo */
-#include "SDT/SDTCommon.h"
-#include "SDT/SDTDemix.h"
+#include "SDT/src/SDT/SDTDemix.h"
 
-/* ─── Module state ────────────────────────────────────────────────────────── */
+#ifdef __EMSCRIPTEN__
+  #include <emscripten/emscripten.h>
+  #define EXPORT EMSCRIPTEN_KEEPALIVE
+#else
+  #define EXPORT
+#endif
 
+// --------- State ---------
 static SDTDemix *g_demix = NULL;
+static float    *g_outInterleaved = NULL; // [frames * 3] interleaved (P,H,R)
+static int       g_frames = 0;
 
-/* Output ring buffers (float) – allocated on init, freed on cleanup */
-static float *g_transientBuf = NULL;
-static float *g_tonalBuf     = NULL;
-static int    g_bufLen       = 0;
-
-/* ─── Lifecycle ───────────────────────────────────────────────────────────── */
-
-EMSCRIPTEN_KEEPALIVE
-void sdt_init(int winSize, int hopSize, int medianOrder, double sampleRate) {
-    sdt_cleanup(); /* free any previous state */
-
-    SDT_init(sampleRate);
-
-    g_demix = SDTDemix_new(winSize);
-    if (!g_demix) return;
-
-    SDTDemix_setWinSize(g_demix,     winSize);
-    SDTDemix_setHopSize(g_demix,     hopSize);
-    SDTDemix_setOverlap(g_demix,     (double)(winSize - hopSize) / winSize);
-    SDTDemix_setDifference(g_demix,  (double)medianOrder);
-}
-
-EMSCRIPTEN_KEEPALIVE
+// --------- Cleanup ---------
+EXPORT
 void sdt_cleanup(void) {
-    if (g_demix) {
-        SDTDemix_free(g_demix);
-        g_demix = NULL;
-    }
-    if (g_transientBuf) { free(g_transientBuf); g_transientBuf = NULL; }
-    if (g_tonalBuf)     { free(g_tonalBuf);     g_tonalBuf     = NULL; }
-    g_bufLen = 0;
-    SDT_cleanup();
+  if (g_demix) {
+    SDTDemix_free(g_demix);
+    g_demix = NULL;
+  }
+  free(g_outInterleaved);
+  g_outInterleaved = NULL;
+  g_frames = 0;
 }
 
-/* ─── Processing ─────────────────────────────────────────────────────────── */
+// --------- Init ---------
+// Suggested params:
+// winSize : e.g. 1024
+// radius  : e.g. 4
+// overlap : 0.0 .. <1.0 (e.g. 0.5). This is the analysis window overlap factor.
+// tonalThresholdDb, noiseThresholdDb : e.g. -40, -60 (dB-like internal thresholds)
+EXPORT
+void sdt_init(int winSize, int radius, double overlap,
+              double tonalThresholdDb, double noiseThresholdDb) {
+  // free previous state
+  sdt_cleanup();
 
-/**
- * Process an array of 32-bit float samples.
- *
- * @param inputPtr   Pointer to input Float32 array (JS-side HEAPF32 view)
- * @param length     Number of samples
- * @returns          Pointer to interleaved [transient0, tonal0, transient1, tonal1, …]
- *                   float array. Length = length * 2. Caller must NOT free – managed here.
- */
-EMSCRIPTEN_KEEPALIVE
-float *sdt_process(float *inputPtr, int length) {
-    if (!g_demix || !inputPtr || length <= 0) return NULL;
+  if (winSize <= 0) winSize = 1024;
+  if (radius  <= 0) radius  = 4;
 
-    /* Allocate / reallocate output buffer */
-    if (g_bufLen < length * 2) {
-        free(g_transientBuf);
-        free(g_tonalBuf);
-        g_transientBuf = (float *)malloc(length * 2 * sizeof(float));
-        g_tonalBuf     = (float *)malloc(length * 2 * sizeof(float));
-        g_bufLen       = length * 2;
-    }
+  g_demix = SDTDemix_new(winSize, radius);
 
-    float *out = (float *)malloc(length * 2 * sizeof(float));
-    if (!out) return NULL;
-
-    double sample;
-    for (int i = 0; i < length; i++) {
-        sample = (double)inputPtr[i];
-        SDTDemix_dsp(g_demix, &sample);
-        out[i * 2]     = (float)SDTDemix_getTransient(g_demix);
-        out[i * 2 + 1] = (float)SDTDemix_getTonal(g_demix);
-    }
-
-    return out; /* caller must call sdt_free_result() */
+  if (overlap > 0.0) {
+    SDTDemix_setOverlap(g_demix, overlap);
+  }
+  SDTDemix_setTonalThreshold(g_demix, tonalThresholdDb);
+  SDTDemix_setNoiseThreshold(g_demix, noiseThresholdDb);
 }
 
-/**
- * Free a buffer returned by sdt_process().
- */
-EMSCRIPTEN_KEEPALIVE
-void sdt_free_result(float *ptr) {
-    if (ptr) free(ptr);
+// --------- Process ---------
+// in: pointer to mono float32 input (length = frames)
+// frames: number of samples
+// returns pointer to interleaved float32 output with 3 channels (P,H,R)
+EXPORT
+float *sdt_process(const float *in, int frames) {
+  if (!g_demix || !in || frames <= 0) return NULL;
+
+  if (frames != g_frames) {
+    free(g_outInterleaved);
+    g_outInterleaved = (float *)malloc(sizeof(float) * frames * 3);
+    g_frames = frames;
+  }
+
+  for (int i = 0; i < frames; ++i) {
+    double outs[3];
+    SDTDemix_dsp(g_demix, outs, (double)in[i]);
+    g_outInterleaved[i * 3 + 0] = (float)outs[0]; // percussive
+    g_outInterleaved[i * 3 + 1] = (float)outs[1]; // harmonic
+    g_outInterleaved[i * 3 + 2] = (float)outs[2]; // residual
+  }
+  return g_outInterleaved;
 }
 
-/* ─── Memory helpers for JS ──────────────────────────────────────────────── */
-
-EMSCRIPTEN_KEEPALIVE
-float *sdt_alloc_f32(int n) {
-    return (float *)malloc(n * sizeof(float));
+// --------- Utility alloc/free (optional) ---------
+EXPORT
+float *sdt_alloc_f32(int count) {
+  if (count <= 0) return NULL;
+  return (float *)malloc(sizeof(float) * count);
 }
 
-EMSCRIPTEN_KEEPALIVE
-void sdt_free(void *ptr) {
-    free(ptr);
+EXPORT
+void sdt_free(void *p) {
+  free(p);
+}
+
+EXPORT
+void sdt_free_result(float *p) {
+  // We return an internal pointer from sdt_process; do nothing on purpose.
+  // If you change sdt_process to allocate a fresh buffer each call,
+  // you can free(p) here instead.
+  (void)p;
 }
