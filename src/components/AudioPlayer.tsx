@@ -251,7 +251,7 @@ export function AudioPlayer({ wavBuffer, loop = false, loopStart = 0, loopEnd = 
       {/* Play/pause button */}
       <button
         onClick={toggle}
-        disabled={!wavBuffer}
+        disabled={!wavBuffer || duration === 0}
         className="w-9 h-9 flex items-center justify-center rounded-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors shrink-0"
       >
         {playing ? (

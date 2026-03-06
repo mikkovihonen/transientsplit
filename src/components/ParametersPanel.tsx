@@ -80,7 +80,7 @@ export function ParametersPanel({ params, onChange, disabled }: Props) {
 
         <Slider
           label="Window Size"
-          hint="Analysis window size (samples) — larger = better frequency resolution"
+          hint="Analysis window size. Try your luck outside values 1024-4096."
           value={Math.log2(params.winSize)}
           min={8}
           max={14}
@@ -101,7 +101,7 @@ export function ParametersPanel({ params, onChange, disabled }: Props) {
         />
         <Slider
           label="Tonal Threshold"
-          hint="Higher = more aggressive tonal detection (in dB)"
+          hint="Higher = more tonal output (in dB)"
           value={params.tonalThresholdDb}
           min={-80}
           max={0}
@@ -134,8 +134,9 @@ export function ParametersPanel({ params, onChange, disabled }: Props) {
         />
         <label htmlFor="normalize-toggle" className="text-slate-300 text-sm font-medium cursor-pointer select-none">
           Normalize outputs
-          <span className="ml-2 text-slate-500 text-xs font-normal">Peak-normalize each component to 0 dBFS</span>
         </label>
+        <span className="ml-2 text-slate-500 text-xs font-normal">Peak-normalize each component to 0 dBFS</span>
+
       </div>
       </div>
   )

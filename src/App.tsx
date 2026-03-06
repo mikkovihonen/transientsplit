@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { DropZone } from './components/DropZone'
+import { RecordingPanel } from './components/RecordingPanel'
 import { ParametersPanel, type FullParams } from './components/ParametersPanel'
 import { ResultCard, type LoopControls } from './components/ResultCard'
 import { parseWav, encodeWav, toMono } from './lib/wav'
 import type { ProcessorMessage, ProcessorRequest } from './workers/processor.worker'
 
 type Status = 'idle' | 'loading' | 'processing' | 'done' | 'error'
+type InputMode = 'file' | 'record'
 
 interface Results {
   transientSamples: Float32Array
@@ -27,6 +29,7 @@ const DEFAULT_PARAMS: FullParams = {
 }
 
 export default function App() {
+  const [inputMode, setInputMode] = useState<InputMode>('file')
   const [status, setStatus] = useState<Status>('idle')
   const [progress, setProgress] = useState(0)
   const [progressMsg, setProgressMsg] = useState('')
@@ -132,6 +135,20 @@ export default function App() {
     [runWorker],
   )
 
+  const processRaw = useCallback(
+    (samples: Float32Array, basename: string) => {
+      workerRef.current?.terminate()
+      setResults(null)
+      setError(null)
+      setStatus('processing')
+      setProgress(0)
+      basenameRef.current = basename
+      setAudioSamples(samples)
+      runWorker(samples)
+    },
+    [runWorker],
+  )
+
   const reset = () => {
     workerRef.current?.terminate()
     setStatus('idle')
@@ -139,6 +156,7 @@ export default function App() {
     setError(null)
     setProgress(0)
     setAudioSamples(null)
+    setTonalLoop({ enabled: false, seamless: false, start: 0, end: 1 })
   }
 
   // whenever parameters change or a new file is loaded, reprocess
@@ -165,23 +183,37 @@ export default function App() {
             <p className="text-slate-500 text-xs mt-0.5">Split percussive and harmonic components from audio</p>
           </div>
         </div>
-
-        {(results || status === 'error') && (
-          <button
-            onClick={reset}
-            className="text-xs font-medium px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-slate-100 transition-colors"
-          >
-            Process another file
-          </button>
-        )}
       </header>
 
       {/* Main */}
-      <main className="flex-1 max-w-3xl w-full mx-auto px-4 py-8 flex flex-col gap-6">
-
-        {/* Drop zone — only before any results */}
+      <main className="flex-1 max-w-3xl w-full mx-auto px-4 py-8 flex flex-col gap-6 lg:justify-center">
+        {/* Input source tabs + panel — only before any results */}
         {!results && status !== 'done' && (
-          <DropZone onFile={process} disabled={busy} />
+          <div className="flex flex-col gap-8">
+            {/* Tabs */}
+            <div className="flex border-b border-slate-700 mb-0">
+              {(['file', 'record'] as const).map(mode => (
+                <button
+                  key={mode}
+                  onClick={() => setInputMode(mode)}
+                  disabled={busy}
+                  className={[
+                    'px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px',
+                    inputMode === mode
+                      ? 'border-indigo-500 text-indigo-400'
+                      : 'border-transparent text-slate-400 hover:text-slate-200',
+                    busy ? 'cursor-not-allowed opacity-40' : '',
+                  ].join(' ')}
+                >
+                  {mode === 'file' ? 'Upload file' : 'Record sample'}
+                </button>
+              ))}
+            </div>
+            {inputMode === 'file'
+              ? <DropZone onFile={process} disabled={busy} />
+              : <RecordingPanel onSamples={processRaw} disabled={busy} />
+            }
+          </div>
         )}
 
         {/* Progress bar — full UI when no results yet, slim bar when reprocessing */}
@@ -250,6 +282,15 @@ export default function App() {
             onChange={setParams}
             disabled={busy}
           />
+        )}
+
+        {(results || status === 'error') && (
+          <button
+            onClick={reset}
+            className="text-xs font-medium px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-slate-100 transition-colors"
+          >
+            Process another sample
+          </button>
         )}
 
       </main>

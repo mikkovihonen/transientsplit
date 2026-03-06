@@ -5,6 +5,7 @@ node_modules/
 dist/
 
 # WASM build artifacts
+public/
 public/sdt-processor.js
 public/sdt-processor.wasm
 wasm/a.out.js

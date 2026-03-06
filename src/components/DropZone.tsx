@@ -44,7 +44,7 @@ export function DropZone({ onFile, disabled }: Props) {
       onDragLeave={() => setDragging(false)}
       className={[
         'flex flex-col items-center justify-center gap-4 rounded-2xl border-2 border-dashed',
-        'cursor-pointer select-none transition-all duration-200 p-12',
+        'cursor-pointer select-none transition-all duration-200 p-12 min-h-72',
         disabled
           ? 'border-slate-700 opacity-40 cursor-not-allowed'
           : dragging
@@ -80,7 +80,7 @@ export function DropZone({ onFile, disabled }: Props) {
           Drop a WAV file here
         </p>
         <p className="text-slate-400 text-sm mt-1">
-          or click to browse &mdash; 48 kHz mono
+          or click to browse
         </p>
       </div>
     </div>
