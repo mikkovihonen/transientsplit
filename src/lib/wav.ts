@@ -99,11 +99,27 @@ export function toMono(info: WavInfo): Float32Array {
 // ─── Encoder ───────────────────────────────────────────────────────────────
 
 /**
- * Encode a mono Float32Array as a 16-bit PCM WAV file.
+ * Encode a mono Float32Array as a WAV file. The default is 24-bit PCM for low
+ * quantisation noise; you can pass 16, 24 or 'f32' for 32-bit float.
  */
-export function encodeWav(samples: Float32Array, sampleRate: number): ArrayBuffer {
+export function encodeWav(
+  samples: Float32Array,
+  sampleRate: number,
+  options: { format?: 'pcm16' | 'pcm24' | 'f32' } = {},
+): ArrayBuffer {
   const numChannels = 1
-  const bitsPerSample = 16
+  const fmt = options.format || 'pcm24'
+  let bitsPerSample: number
+  let isFloat = false
+  if (fmt === 'pcm16') bitsPerSample = 16
+  else if (fmt === 'pcm24') bitsPerSample = 24
+  else if (fmt === 'f32') {
+    bitsPerSample = 32
+    isFloat = true
+  } else {
+    throw new Error('Unsupported WAV format ' + fmt)
+  }
+
   const blockAlign = numChannels * (bitsPerSample >> 3)
   const byteRate = sampleRate * blockAlign
   const dataSize = samples.length * blockAlign
@@ -118,7 +134,7 @@ export function encodeWav(samples: Float32Array, sampleRate: number): ArrayBuffe
   writeStr(8, 'WAVE')
   writeStr(12, 'fmt ')
   view.setUint32(16, 16, true)
-  view.setUint16(20, 1, true)           // PCM
+  view.setUint16(20, isFloat ? 3 : 1, true) // audio format
   view.setUint16(22, numChannels, true)
   view.setUint32(24, sampleRate, true)
   view.setUint32(28, byteRate, true)
@@ -127,9 +143,33 @@ export function encodeWav(samples: Float32Array, sampleRate: number): ArrayBuffe
   writeStr(36, 'data')
   view.setUint32(40, dataSize, true)
 
+  // if any sample exceeds [-1,1] we normalise to avoid digital clipping
+  let peak = 0
   for (let i = 0; i < samples.length; i++) {
-    const s = Math.max(-1, Math.min(1, samples[i]))
-    view.setInt16(44 + i * 2, s < 0 ? s * 32768 : s * 32767, true)
+    peak = Math.max(peak, Math.abs(samples[i]))
+  }
+  const scale = peak > 1 ? 1 / peak : 1
+
+  // simple triangular dither for integer formats
+  const step = 1 / 32768
+  for (let i = 0; i < samples.length; i++) {
+    let s = samples[i] * scale
+    if (!isFloat) {
+      s += (Math.random() - Math.random()) * step
+    }
+    s = Math.max(-1, Math.min(1, s))
+    const offset = 44 + i * blockAlign
+    if (fmt === 'pcm16') {
+      view.setInt16(offset, s < 0 ? s * 32768 : s * 32767, true)
+    } else if (fmt === 'pcm24') {
+      // 24-bit little endian
+      let val = Math.floor((s < 0 ? s * 8388608 : s * 8388607))
+      view.setUint8(offset, val & 0xff)
+      view.setUint8(offset + 1, (val >> 8) & 0xff)
+      view.setUint8(offset + 2, (val >> 16) & 0xff)
+    } else if (fmt === 'f32') {
+      view.setFloat32(offset, s, true)
+    }
   }
 
   return buf

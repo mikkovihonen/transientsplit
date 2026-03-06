@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { DropZone } from './components/DropZone'
 import { ParametersPanel, type FullParams } from './components/ParametersPanel'
 import { ResultCard } from './components/ResultCard'
@@ -10,18 +10,18 @@ type Status = 'idle' | 'loading' | 'processing' | 'done' | 'error'
 interface Results {
   transientSamples: Float32Array
   tonalSamples: Float32Array
+  residualSamples: Float32Array
   transientWav: ArrayBuffer
   tonalWav: ArrayBuffer
+  residualWav: ArrayBuffer
   basename: string
 }
 
+// default SDT params exposed to the UI
 const DEFAULT_PARAMS: FullParams = {
-  fftSize: 2048,
-  hopSize: 512,
-  harmonicL: 17,
-  percussiveL: 17,
-  power: 2,
-  crossfadeMs: 100,
+  radius: 4,
+  tonalThresholdDb: -40,
+  noiseThresholdDb: -60,
 }
 
 export default function App() {
@@ -30,10 +30,71 @@ export default function App() {
   const [progressMsg, setProgressMsg] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [results, setResults] = useState<Results | null>(null)
-  const [params, setParams] = useState<FullParams>(DEFAULT_PARAMS)
-
+  const [audioSamples, setAudioSamples] = useState<Float32Array | null>(null)
   const workerRef = useRef<Worker | null>(null)
   const basenameRef = useRef('')
+  const [params, setParams] = useState<FullParams>(DEFAULT_PARAMS)
+
+  // runs the worker on a given sample buffer using current params
+  const runWorker = useCallback(
+    (samples: Float32Array) => {
+      workerRef.current?.terminate()
+      setResults(null)
+      setError(null)
+      setStatus('processing')
+      setProgress(0.02)
+
+      const worker = new Worker(
+        new URL('./workers/processor.worker.ts', import.meta.url),
+        { type: 'module' },
+      )
+      workerRef.current = worker
+
+      worker.onmessage = (e: MessageEvent<ProcessorMessage>) => {
+        const msg = e.data
+        if (msg.type === 'progress') {
+          setProgress(msg.progress)
+          setProgressMsg(msg.message)
+        } else if (msg.type === 'result') {
+          const transientWav = encodeWav(msg.transient, 48000, { format: 'pcm24' })
+          const tonalWav = encodeWav(msg.tonal, 48000, { format: 'pcm24' })
+          const residualWav = encodeWav(msg.residual, 48000, { format: 'pcm24' })
+          setResults({
+            transientSamples: msg.transient,
+            tonalSamples: msg.tonal,
+            residualSamples: msg.residual,
+            transientWav,
+            tonalWav,
+            residualWav,
+            basename: basenameRef.current,
+          })
+          setStatus('done')
+          setProgress(1)
+          worker.terminate()
+        } else if (msg.type === 'error') {
+          setError(msg.message)
+          setStatus('error')
+          worker.terminate()
+        }
+      }
+
+      worker.onerror = (e) => {
+        setError(e.message ?? 'Unknown worker error')
+        setStatus('error')
+        worker.terminate()
+      }
+
+      const req: ProcessorRequest = {
+        audio: samples,
+        radius: params.radius,
+        tonalThresholdDb: params.tonalThresholdDb,
+        noiseThresholdDb: params.noiseThresholdDb,
+      }
+      // do not transfer buffer; we need to reuse samples for parameter tweaks
+      worker.postMessage(req)
+    },
+    [params],
+  )
 
   const process = useCallback(
     async (file: File) => {
@@ -66,57 +127,10 @@ export default function App() {
         return
       }
 
-      setStatus('processing')
-      setProgress(0.02)
-
-      // Sync hop size to fftSize / 4
-      const activeParams = { ...params, hopSize: params.fftSize >> 2 }
-
-      const worker = new Worker(
-        new URL('./workers/processor.worker.ts', import.meta.url),
-        { type: 'module' },
-      )
-      workerRef.current = worker
-
-      worker.onmessage = (e: MessageEvent<ProcessorMessage>) => {
-        const msg = e.data
-        if (msg.type === 'progress') {
-          setProgress(msg.progress)
-          setProgressMsg(msg.message)
-        } else if (msg.type === 'result') {
-          const transientWav = encodeWav(msg.transient, 48000)
-          const tonalWav = encodeWav(msg.tonal, 48000)
-          setResults({
-            transientSamples: msg.transient,
-            tonalSamples: msg.tonal,
-            transientWav,
-            tonalWav,
-            basename: basenameRef.current,
-          })
-          setStatus('done')
-          setProgress(1)
-          worker.terminate()
-        } else if (msg.type === 'error') {
-          setError(msg.message)
-          setStatus('error')
-          worker.terminate()
-        }
-      }
-
-      worker.onerror = (e) => {
-        setError(e.message ?? 'Unknown worker error')
-        setStatus('error')
-        worker.terminate()
-      }
-
-      const req: ProcessorRequest = {
-        audio: samples,
-        params: activeParams,
-        crossfadeMs: activeParams.crossfadeMs,
-      }
-      worker.postMessage(req, { transfer: [samples.buffer] })
+      setAudioSamples(samples)
+      runWorker(samples)
     },
-    [params],
+    [runWorker],
   )
 
   const reset = () => {
@@ -125,7 +139,15 @@ export default function App() {
     setResults(null)
     setError(null)
     setProgress(0)
+    setAudioSamples(null)
   }
+
+  // whenever parameters change or a new file is loaded, reprocess
+  useEffect(() => {
+    if (audioSamples) {
+      runWorker(audioSamples)
+    }
+  }, [params, audioSamples, runWorker])
 
   const busy = status === 'loading' || status === 'processing'
 
@@ -141,7 +163,7 @@ export default function App() {
           </div>
           <div>
             <h1 className="text-slate-100 font-bold text-lg leading-none">Transient Splitter</h1>
-            <p className="text-slate-500 text-xs mt-0.5">HPSS source separation &bull; 48 kHz WAV</p>
+            <p className="text-slate-500 text-xs mt-0.5">Split percussive and harmonic components from audio</p>
           </div>
         </div>
 
@@ -190,7 +212,7 @@ export default function App() {
               Separation complete for <span className="text-slate-200 font-medium">{results.basename}.wav</span>
             </p>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               <ResultCard
                 title="Transient"
                 subtitle="Percussive / attack component"
@@ -207,8 +229,16 @@ export default function App() {
                 waveColor="#818cf8"
                 samples={results.tonalSamples}
                 wavBuffer={results.tonalWav}
-                filename={`${results.basename}_tonal_loop.wav`}
-                loop
+                filename={`${results.basename}_tonal.wav`}
+              />
+              <ResultCard
+                title="Residual"
+                subtitle="Noise / unclassified component"
+                accentColor="bg-emerald-500"
+                waveColor="#10b981"
+                samples={results.residualSamples}
+                wavBuffer={results.residualWav}
+                filename={`${results.basename}_residual.wav`}
               />
             </div>
           </div>
@@ -222,6 +252,7 @@ export default function App() {
             disabled={busy}
           />
         )}
+
       </main>
 
       {/* Footer */}

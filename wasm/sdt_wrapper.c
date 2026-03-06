@@ -62,7 +62,23 @@ float *sdt_process(const float *in, int frames) {
 
   if (frames != g_frames) {
     free(g_outInterleaved);
-    g_outInterleaved = (float *)malloc(sizeof(float) * frames * 3);
+    // check for multiplication overflow
+    size_t outCount;
+    if ((size_t)frames > SIZE_MAX / 3) {
+      // too large to allocate
+      return NULL;
+    }
+    outCount = (size_t)frames * 3;
+    // allocate a few extra floats as sentinel to detect overruns
+    g_outInterleaved = (float *)malloc(sizeof(float) * (outCount + 4));
+    if (!g_outInterleaved) {
+      return NULL;
+    }
+    // clear sentinel
+    g_outInterleaved[outCount + 0] = 0;
+    g_outInterleaved[outCount + 1] = 0;
+    g_outInterleaved[outCount + 2] = 0;
+    g_outInterleaved[outCount + 3] = 0;
     g_frames = frames;
   }
 
@@ -72,6 +88,14 @@ float *sdt_process(const float *in, int frames) {
     g_outInterleaved[i * 3 + 0] = (float)outs[0]; // percussive
     g_outInterleaved[i * 3 + 1] = (float)outs[1]; // harmonic
     g_outInterleaved[i * 3 + 2] = (float)outs[2]; // residual
+  }
+  // check sentinel values
+  size_t outCount = (size_t)frames * 3;
+  if (g_outInterleaved[outCount] != 0 || g_outInterleaved[outCount+1] != 0 ||
+      g_outInterleaved[outCount+2] != 0 || g_outInterleaved[outCount+3] != 0) {
+    // overwrite sentinel indicates a write past end
+    // this is primarily for debugging; return NULL to signal error
+    return NULL;
   }
   return g_outInterleaved;
 }

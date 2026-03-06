@@ -7,6 +7,9 @@ dist/
 # WASM build artifacts
 public/sdt-processor.js
 public/sdt-processor.wasm
+wasm/a.out.js
+wasm/a.out.wasm
+wasm/*.o
 
 # Environment
 .env

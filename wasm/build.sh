@@ -79,9 +79,10 @@ emcc \
     -lm \
     -s WASM=1 \
     -s MODULARIZE=1 \
+    -s EXPORT_ES6=1 \
     -s EXPORT_NAME=createSDTModule \
     -s ALLOW_MEMORY_GROWTH=1 \
-    -s INITIAL_MEMORY=33554432 \
+    -s INITIAL_MEMORY=134217728 \
     -s EXPORTED_FUNCTIONS='[
         "_sdt_init",
         "_sdt_cleanup",
@@ -105,5 +106,6 @@ emcc \
 echo "==> Done!"
 echo "    $OUT_DIR/sdt-processor.js"
 echo "    $OUT_DIR/sdt-processor.wasm"
-echo ""
-echo "The app will automatically use the SDT WASM module if it is present."
+
+# Clean up intermediate build artifacts
+rm -f a.out.js a.out.wasm ./*.o
