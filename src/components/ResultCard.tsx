@@ -1,8 +1,13 @@
 import { WaveformView } from './WaveformView'
 import { AudioPlayer } from './AudioPlayer'
+import { encodeWav, buildCrossfadeSamples } from '../lib/wav'
+
+const SR = 48000
+const CROSSFADE_SAMPLES = Math.round(0.05 * SR) // must match AudioPlayer CROSSFADE_SEC
 
 export interface LoopControls {
   enabled: boolean
+  seamless: boolean
   start: number   // fraction [0, 1]
   end: number     // fraction [0, 1]
   duration: number // seconds, for time display
@@ -32,8 +37,34 @@ export function ResultCard({
   loopControls,
 }: Props) {
   const download = () => {
-    if (!wavBuffer) return
-    const blob = new Blob([wavBuffer], { type: 'audio/wav' })
+    if (!samples) return
+
+    let outSamples: Float32Array
+    let loopPoint: { startSample: number; endSample: number } | undefined
+
+    if (loopControls?.enabled) {
+      const loopStartSample = Math.round(loopControls.start * samples.length)
+      const loopEndSample   = Math.round(loopControls.end   * samples.length)
+
+      if (loopControls.seamless) {
+        // Build pre-roll + crossfade buffer, matching AudioPlayer's seamless mode
+        const { cfSamples, handoffSample } = buildCrossfadeSamples(
+          samples, loopStartSample, loopEndSample, CROSSFADE_SAMPLES,
+        )
+        outSamples = new Float32Array(handoffSample + cfSamples.length)
+        outSamples.set(samples.subarray(0, handoffSample), 0)
+        outSamples.set(cfSamples, handoffSample)
+        loopPoint = { startSample: handoffSample, endSample: handoffSample + cfSamples.length - 1 }
+      } else {
+        outSamples = samples
+        loopPoint = { startSample: loopStartSample, endSample: loopEndSample - 1 }
+      }
+    } else {
+      outSamples = samples
+    }
+
+    const wav = encodeWav(outSamples, SR, { format: 'pcm16', loopPoint })
+    const blob = new Blob([wav], { type: 'audio/wav' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -75,26 +106,45 @@ export function ResultCard({
           height={72}
           loopRegion={loopControls?.enabled ? { start: loopControls.start, end: loopControls.end } : null}
           onLoopChange={loopControls?.enabled
-            ? (region) => loopControls.onChange({ enabled: true, ...region })
+            ? (region) => loopControls.onChange({ enabled: true, seamless: loopControls.seamless, ...region })
             : undefined}
         />
       </div>
 
-      {/* Loop toggle */}
+      {/* Loop controls */}
       {loopControls && (
-        <button
-          onClick={() => loopControls.onChange({ ...loopControls, enabled: !loopControls.enabled })}
-          className={`self-start flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
-            loopControls.enabled
-              ? 'bg-indigo-600 text-white'
-              : 'bg-slate-800 text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
-          </svg>
-          Loop
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => loopControls.onChange({ ...loopControls, enabled: !loopControls.enabled })}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+              loopControls.enabled
+                ? 'bg-indigo-600 text-white'
+                : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+            </svg>
+            Loop
+          </button>
+
+          {loopControls.enabled && (
+            <button
+              onClick={() => loopControls.onChange({ ...loopControls, seamless: !loopControls.seamless })}
+              title="Crossfade loop seam to eliminate clicks"
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                loopControls.seamless
+                  ? 'bg-violet-600 text-white'
+                  : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 9V4.5M9 9H4.5M9 9 3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5 5.25 5.25" />
+              </svg>
+              Seamless
+            </button>
+          )}
+        </div>
       )}
 
       {/* Player */}
@@ -103,6 +153,7 @@ export function ResultCard({
         loop={loopControls?.enabled ?? false}
         loopStart={loopControls?.start}
         loopEnd={loopControls?.end}
+        seamlessLoop={loopControls?.seamless ?? false}
       />
     </div>
   )

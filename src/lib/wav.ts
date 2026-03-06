@@ -98,14 +98,20 @@ export function toMono(info: WavInfo): Float32Array {
 
 // ─── Encoder ───────────────────────────────────────────────────────────────
 
+export interface LoopPoint {
+  startSample: number
+  endSample: number  // inclusive
+}
+
 /**
- * Encode a mono Float32Array as a WAV file. The default is 24-bit PCM for low
- * quantisation noise; you can pass 16, 24 or 'f32' for 32-bit float.
+ * Encode a mono Float32Array as a WAV file.
+ * - format: 'pcm16' | 'pcm24' (default) | 'f32'
+ * - loopPoint: if provided, appends a SMPL chunk so DAWs and samplers pick up the loop
  */
 export function encodeWav(
   samples: Float32Array,
   sampleRate: number,
-  options: { format?: 'pcm16' | 'pcm24' | 'f32' } = {},
+  options: { format?: 'pcm16' | 'pcm24' | 'f32'; loopPoint?: LoopPoint } = {},
 ): ArrayBuffer {
   const numChannels = 1
   const fmt = options.format || 'pcm24'
@@ -123,14 +129,17 @@ export function encodeWav(
   const blockAlign = numChannels * (bitsPerSample >> 3)
   const byteRate = sampleRate * blockAlign
   const dataSize = samples.length * blockAlign
-  const buf = new ArrayBuffer(44 + dataSize)
+
+  // SMPL chunk: 8-byte header + 36 bytes base + 24 bytes per loop entry
+  const smplSize = options.loopPoint ? (8 + 36 + 24) : 0
+  const buf = new ArrayBuffer(44 + dataSize + smplSize)
   const view = new DataView(buf)
   const writeStr = (off: number, s: string) => {
     for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i))
   }
 
   writeStr(0, 'RIFF')
-  view.setUint32(4, 36 + dataSize, true)
+  view.setUint32(4, 36 + dataSize + smplSize, true)
   writeStr(8, 'WAVE')
   writeStr(12, 'fmt ')
   view.setUint32(16, 16, true)
@@ -172,5 +181,59 @@ export function encodeWav(
     }
   }
 
+  // SMPL chunk (standard WAV loop metadata)
+  if (options.loopPoint) {
+    const s = 44 + dataSize
+    writeStr(s, 'smpl')
+    view.setUint32(s + 4, 36 + 24, true)           // chunk data size
+    view.setUint32(s + 8,  0, true)                 // manufacturer
+    view.setUint32(s + 12, 0, true)                 // product
+    view.setUint32(s + 16, Math.round(1e9 / sampleRate), true) // sample period (ns)
+    view.setUint32(s + 20, 60, true)                // MIDI unity note (middle C)
+    view.setUint32(s + 24, 0, true)                 // MIDI pitch fraction
+    view.setUint32(s + 28, 0, true)                 // SMPTE format
+    view.setUint32(s + 32, 0, true)                 // SMPTE offset
+    view.setUint32(s + 36, 1, true)                 // num sample loops
+    view.setUint32(s + 40, 0, true)                 // sampler data
+    // Loop entry
+    view.setUint32(s + 44, 0, true)                 // cue point ID
+    view.setUint32(s + 48, 0, true)                 // type: 0 = forward loop
+    view.setUint32(s + 52, options.loopPoint.startSample, true)
+    view.setUint32(s + 56, options.loopPoint.endSample, true)
+    view.setUint32(s + 60, 0, true)                 // fraction
+    view.setUint32(s + 64, 0, true)                 // play count: 0 = infinite
+  }
+
   return buf
+}
+
+/**
+ * Build a crossfade loop region from a mono Float32Array.
+ * Mirrors the AudioPlayer's createCrossfadeBuffer but operates on raw samples.
+ * Returns the cfSamples array and the sample offset at which it starts (handoffSample).
+ */
+export function buildCrossfadeSamples(
+  samples: Float32Array,
+  loopStartSample: number,
+  loopEndSample: number,
+  crossfadeSamples: number,
+): { cfSamples: Float32Array; handoffSample: number } {
+  const A = loopStartSample
+  const B = loopEndSample
+  const L = B - A
+  const X = Math.min(crossfadeSamples, Math.floor(L / 2))
+  const outLen = L - X
+  const handoffSample = B - X
+
+  const cfSamples = new Float32Array(outLen)
+  for (let i = 0; i < X; i++) {
+    const t = i / X
+    const fadeIn  = Math.sin(t * Math.PI * 0.5) ** 2
+    const fadeOut = Math.cos(t * Math.PI * 0.5) ** 2
+    cfSamples[i] = samples[A + i] * fadeIn + samples[B - X + i] * fadeOut
+  }
+  for (let i = X; i < outLen; i++) {
+    cfSamples[i] = samples[A + i]
+  }
+  return { cfSamples, handoffSample }
 }

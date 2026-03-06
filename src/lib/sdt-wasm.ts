@@ -22,10 +22,11 @@ function dbToLinear(db: number): number {
 }
 
 export interface SDTOptions {
+  winSize?: number              // analysis window size (must be power of 2)
   radius?: number               // smoothing kernel radius (samples)
   overlap?: number              // window overlap factor (0.0-1.0)
-  tonalThresholdDb?: number     // dB-style tonal threshold (0 = agressive, -80 = picky)
-  noiseThresholdDb?: number     // dB-style residual threshold
+  tonalThresholdDb?: number     // tonal threshold in dB (0 dB = maximum, -80 dB = minimum)
+  noiseThresholdDb?: number     // residual threshold in dB (0 dB = maximum, -80 dB = minimum)
 }
 
 
@@ -182,6 +183,7 @@ export async function loadSDT(): Promise<SDTProcessor> {
   let initialized = false
   // keep previous *db* options so we can detect any change and reinit
   let lastOpts: Required<SDTOptions> = {
+    winSize: SDT_WINDOW_SIZE,
     radius: 4,
     overlap: 0.5,
     tonalThresholdDb: -40,
@@ -190,8 +192,8 @@ export async function loadSDT(): Promise<SDTProcessor> {
 
   return {
     process(samples: Float32Array, opts: SDTOptions = {}): SDTResult {
-      const winSize = SDT_WINDOW_SIZE
       // merge provided options with defaults
+      const winSize = opts.winSize ?? lastOpts.winSize
       const radius = opts.radius ?? lastOpts.radius
       const overlap = opts.overlap ?? lastOpts.overlap
       const tonalThresholdDb = opts.tonalThresholdDb ?? lastOpts.tonalThresholdDb
@@ -199,6 +201,7 @@ export async function loadSDT(): Promise<SDTProcessor> {
 
       const optsChanged =
         !initialized ||
+        winSize !== lastOpts.winSize ||
         radius !== lastOpts.radius ||
         overlap !== lastOpts.overlap ||
         tonalThresholdDb !== lastOpts.tonalThresholdDb ||
@@ -210,7 +213,7 @@ export async function loadSDT(): Promise<SDTProcessor> {
         const noiseLin = dbToLinear(noiseThresholdDb)
         sdt_init(winSize, radius, overlap, tonalLin, noiseLin)
         initialized = true
-        lastOpts = { radius, overlap, tonalThresholdDb, noiseThresholdDb }
+        lastOpts = { winSize, radius, overlap, tonalThresholdDb, noiseThresholdDb }
       }
 
       // Copy samples into WASM heap

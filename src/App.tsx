@@ -19,9 +19,11 @@ interface Results {
 
 // default SDT params exposed to the UI
 const DEFAULT_PARAMS: FullParams = {
+  winSize: 2048,
   radius: 6,
   tonalThresholdDb: -4,
   noiseThresholdDb: -80,
+  normalize: false,
 }
 
 export default function App() {
@@ -36,6 +38,7 @@ export default function App() {
   const [params, setParams] = useState<FullParams>(DEFAULT_PARAMS)
   const [tonalLoop, setTonalLoop] = useState<Omit<LoopControls, 'onChange' | 'duration'>>({
     enabled: false,
+    seamless: false,
     start: 0,
     end: 1,
   })
@@ -60,9 +63,9 @@ export default function App() {
           setProgress(msg.progress)
           setProgressMsg(msg.message)
         } else if (msg.type === 'result') {
-          const transientWav = encodeWav(msg.transient, 48000, { format: 'pcm24' })
-          const tonalWav = encodeWav(msg.tonal, 48000, { format: 'pcm24' })
-          const residualWav = encodeWav(msg.residual, 48000, { format: 'pcm24' })
+          const transientWav = encodeWav(msg.transient, 48000, { format: 'f32' })
+          const tonalWav = encodeWav(msg.tonal, 48000, { format: 'f32' })
+          const residualWav = encodeWav(msg.residual, 48000, { format: 'f32' })
           setResults({
             transientSamples: msg.transient,
             tonalSamples: msg.tonal,
@@ -90,9 +93,11 @@ export default function App() {
 
       const req: ProcessorRequest = {
         audio: samples,
+        winSize: params.winSize,
         radius: params.radius,
         tonalThresholdDb: params.tonalThresholdDb,
         noiseThresholdDb: params.noiseThresholdDb,
+        normalize: params.normalize,
       }
       // do not transfer buffer; we need to reuse samples for parameter tweaks
       worker.postMessage(req)
@@ -201,14 +206,10 @@ export default function App() {
         {/* Results */}
         {results && (
           <div className="flex flex-col gap-4">
-            <p className="text-slate-400 text-sm text-center">
-              Separation complete for <span className="text-slate-200 font-medium">{results.basename}.wav</span>
-            </p>
-
             <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 transition-[filter,opacity] duration-300 ${busy ? 'opacity-40 grayscale' : 'opacity-100 grayscale-0'}`}>
               <ResultCard
                 title="Transient"
-                subtitle="Percussive / attack component"
+                subtitle="Percussive / attack"
                 accentColor="bg-amber-500"
                 waveColor="#f59e0b"
                 samples={results.transientSamples}
@@ -217,7 +218,7 @@ export default function App() {
               />
               <ResultCard
                 title="Tonal"
-                subtitle="Harmonic / sustained component"
+                subtitle="Harmonic / sustained"
                 accentColor="bg-indigo-500"
                 waveColor="#818cf8"
                 samples={results.tonalSamples}
@@ -231,7 +232,7 @@ export default function App() {
               />
               <ResultCard
                 title="Residual"
-                subtitle="Noise / unclassified component"
+                subtitle="Noise / unclassified"
                 accentColor="bg-emerald-500"
                 waveColor="#10b981"
                 samples={results.residualSamples}

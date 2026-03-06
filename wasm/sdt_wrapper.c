@@ -33,10 +33,10 @@ void sdt_cleanup(void) {
 // winSize : e.g. 1024
 // radius  : e.g. 4
 // overlap : 0.0 .. <1.0 (e.g. 0.5). This is the analysis window overlap factor.
-// tonalThresholdDb, noiseThresholdDb : e.g. -40, -60 (dB-like internal thresholds)
+// tonalThreshold, noiseThreshold : linear [0..1] threshold values (0=none, 1=maximum)
 EXPORT
 void sdt_init(int winSize, int radius, double overlap,
-              double tonalThresholdDb, double noiseThresholdDb) {
+              double tonalThreshold, double noiseThreshold) {
   // free previous state
   sdt_cleanup();
 
@@ -48,8 +48,8 @@ void sdt_init(int winSize, int radius, double overlap,
   if (overlap > 0.0) {
     SDTDemix_setOverlap(g_demix, overlap);
   }
-  SDTDemix_setTonalThreshold(g_demix, tonalThresholdDb);
-  SDTDemix_setNoiseThreshold(g_demix, noiseThresholdDb);
+  SDTDemix_setTonalThreshold(g_demix, tonalThreshold);
+  SDTDemix_setNoiseThreshold(g_demix, noiseThreshold);
 }
 
 // --------- Process ---------

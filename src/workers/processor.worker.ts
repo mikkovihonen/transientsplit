@@ -2,14 +2,16 @@
  * Background worker: runs audio separation.
  *
  */
-import { loadSDT, SDT_WINDOW_SIZE } from '../lib/sdt-wasm'
+import { loadSDT } from '../lib/sdt-wasm'
 
 export interface ProcessorRequest {
   audio: Float32Array
   // parameters that control the SDT algorithm
+  winSize: number
   radius: number
   tonalThresholdDb: number
   noiseThresholdDb: number
+  normalize: boolean
 }
 
 export type ProcessorMessage =
@@ -18,7 +20,7 @@ export type ProcessorMessage =
   | { type: 'error'; message: string }
 
 self.onmessage = async (e: MessageEvent<ProcessorRequest>) => {
-  const { audio, radius, tonalThresholdDb, noiseThresholdDb } = e.data
+  const { audio, winSize, radius, tonalThresholdDb, noiseThresholdDb, normalize } = e.data
 
   try {
     post({ type: 'progress', progress: 0.05, message: 'Loading processor...' })
@@ -37,7 +39,7 @@ self.onmessage = async (e: MessageEvent<ProcessorRequest>) => {
     const processWithFallback = async (input: Float32Array): Promise<{ transient: Float32Array; tonal: Float32Array; residual: Float32Array }> => {
       const chunkSize = 60000 // ~1.25 sec at 48kHz
       if (input.length <= chunkSize) {
-        return sdtProcessor.process(input, { radius, tonalThresholdDb, noiseThresholdDb })
+        return sdtProcessor.process(input, { winSize, radius, tonalThresholdDb, noiseThresholdDb })
       }
 
       // split into chunks and process
@@ -48,7 +50,7 @@ self.onmessage = async (e: MessageEvent<ProcessorRequest>) => {
       for (let start = 0; start < input.length; start += chunkSize) {
         const end = Math.min(input.length, start + chunkSize)
         const slice = input.subarray(start, end)
-        const res = sdtProcessor.process(slice, { radius, tonalThresholdDb, noiseThresholdDb })
+        const res = sdtProcessor.process(slice, { winSize, radius, tonalThresholdDb, noiseThresholdDb })
         transientAcc.set(res.transient, start)
         tonalAcc.set(res.tonal, start)
         residualAcc.set(res.residual, start)
@@ -56,23 +58,40 @@ self.onmessage = async (e: MessageEvent<ProcessorRequest>) => {
       return { transient: transientAcc, tonal: tonalAcc, residual: residualAcc }
     }
 
-    ;({ transient, tonal, residual } = await processWithFallback(audio))
+    // SDTDemix is a causal STFT overlap-add processor.  Its output at sample T
+    // corresponds to input at T − latency, where:
+    //   hopSize = (1 - overlap) * winSize   [overlap is fixed at 0.5]
+    //   latency = winSize + (radius + 1) * hopSize - 1  ≈ 3.5 × winSize
+    //
+    // To align the outputs with the source we append `latency` trailing zeros
+    // so the processor has time to "flush" all audio samples through.  After
+    // processing we slice off the first `latency` output samples (the warmup
+    // period where the algorithm sees only silence or partial history).
+    //
+    // NOTE: prepending zeros instead of appending would be wrong — the audio
+    // content would still be delayed by latency in the sliced result, and the
+    // last `latency` samples of audio would fall outside the output buffer.
+    const hopSize = Math.round(0.5 * winSize) // overlap = 0.5
+    const latency = winSize + (radius + 1) * hopSize - 1
+    const paddedAudio = new Float32Array(audio.length + latency)
+    paddedAudio.set(audio, 0) // audio at the start, trailing zeros for flush
+    ;({ transient, tonal, residual } = await processWithFallback(paddedAudio))
 
-    // remove warm‑up latency introduced by the SDT analyser window
-    const latency = SDT_WINDOW_SIZE
+    // Skip the warmup period (first `latency` output samples correspond to the
+    // algorithm processing silence/partial history, not real audio).
     if (latency > 0 && transient.length > latency) {
       transient = transient.slice(latency)
       tonal = tonal.slice(latency)
       residual = residual.slice(latency)
     }
 
-    // if any small leading silence remains (algorithm latency larger than
-    // assumed window) trim up to the first non‑zero sample across all three
-    // output streams. this prevents the tonal/residual signals from being
-    // discarded when the percussive channel is quiet.
+    // Safety net: trim any residual near-silence caused by off-by-one rounding
+    // in the latency formula (at most one extra hop).
     const thresh = 1e-6
+    const maxTrim = hopSize
     let trim = 0
     while (
+      trim < maxTrim &&
       trim < transient.length &&
       Math.abs(transient[trim]) < thresh &&
       Math.abs(tonal[trim]) < thresh &&
@@ -84,6 +103,19 @@ self.onmessage = async (e: MessageEvent<ProcessorRequest>) => {
       transient = transient.slice(trim)
       tonal = tonal.slice(trim)
       residual = residual.slice(trim)
+    }
+
+    if (normalize) {
+      for (const arr of [transient, tonal, residual]) {
+        let peak = 0
+        for (let i = 0; i < arr.length; i++) {
+          const abs = Math.abs(arr[i])
+          if (abs > peak) peak = abs
+        }
+        if (peak > 0) {
+          for (let i = 0; i < arr.length; i++) arr[i] /= peak
+        }
+      }
     }
 
     post({ type: 'progress', progress: 0.98, message: 'Done' })

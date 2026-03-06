@@ -40,7 +40,6 @@ if [ -d "$SDT_DIR/.git" ]; then
     echo "    Existing clone found, pulling latest..."
     git -C "$SDT_DIR" pull --ff-only
 else
-    # Adjust the URL/branch if the repo has moved
     git clone --recurse-submodules --filter=blob:none --also-filter-submodules git@github.com:SkAT-VG/SDT.git "$SDT_DIR"
 fi
 
@@ -83,6 +82,7 @@ emcc \
     -s EXPORT_NAME=createSDTModule \
     -s ALLOW_MEMORY_GROWTH=1 \
     -s INITIAL_MEMORY=134217728 \
+    -s STACK_SIZE=1048576 \
     -s EXPORTED_FUNCTIONS='[
         "_sdt_init",
         "_sdt_cleanup",

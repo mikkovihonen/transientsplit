@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
 
 export interface FullParams {
+  winSize: number
   radius: number
   tonalThresholdDb: number
   noiseThresholdDb: number
+  normalize: boolean
 }
 
 interface Props {
@@ -75,13 +77,24 @@ export function ParametersPanel({ params, onChange, disabled }: Props) {
       <h2 className="text-slate-200 font-medium text-sm">Splitter Parameters</h2>
 
       <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
-       
+
+        <Slider
+          label="Window Size"
+          hint="Analysis window size (samples) — larger = better frequency resolution"
+          value={Math.log2(params.winSize)}
+          min={8}
+          max={14}
+          step={1}
+          format={(v) => String(Math.pow(2, v))}
+          onChange={(v) => set('winSize', Math.pow(2, v))}
+          disabled={disabled}
+        />
         <Slider
           label="Kernel Radius"
           hint="Smoothing radius (samples) for structure tensor"
           value={params.radius}
           min={1}
-          max={16}
+          max={6}
           step={1}
           onChange={(v) => set('radius', v)}
           disabled={disabled}
@@ -108,6 +121,21 @@ export function ParametersPanel({ params, onChange, disabled }: Props) {
           onChange={(v) => set('noiseThresholdDb', v)}
           disabled={disabled}
         />
+      </div>
+
+      <div className="mt-4 flex items-center gap-3">
+        <input
+          id="normalize-toggle"
+          type="checkbox"
+          checked={params.normalize}
+          disabled={disabled}
+          onChange={(e) => onChange({ ...params, normalize: e.target.checked })}
+          className="w-4 h-4 accent-indigo-500 disabled:opacity-40 cursor-pointer"
+        />
+        <label htmlFor="normalize-toggle" className="text-slate-300 text-sm font-medium cursor-pointer select-none">
+          Normalize outputs
+          <span className="ml-2 text-slate-500 text-xs font-normal">Peak-normalize each component to 0 dBFS</span>
+        </label>
       </div>
       </div>
   )
