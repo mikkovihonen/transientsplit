@@ -226,7 +226,7 @@ export function RecordingPanel({ onSamples, disabled }: Props) {
     : '0.00'
 
   return (
-    <div className="rounded-2xl border-2 border-dashed border-slate-600 p-8 flex flex-col gap-4 min-h-72">
+    <div className="rounded-2xl border-2 border-dashed border-slate-600 p-8 flex flex-col gap-4 min-h-72 justify-center">
 
       {/* ── IDLE (requesting permission / denied) ────────────────────── */}
       {state === 'idle' && (
