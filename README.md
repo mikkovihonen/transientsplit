@@ -1,22 +1,12 @@
 # Transient Splitter
 
-A browser-based audio tool that separates a **48 kHz mono WAV** file into:
+A browser-based audio tool that separates a mono file into:
 
 - **Transient** (percussive / attack) component
-- **Tonal** (harmonic / sustained) component – output as a **seamless loop**
+- **Tonal** (harmonic / sustained) component
+- **Residual** (noise / other) component
 
 All processing runs entirely in the browser via a Web Worker.  No audio is ever uploaded to a server.
-
----
-
-## Quick start
-
-```bash
-npm install
-npm run dev
-```
-
-Open http://localhost:5173, drop a 48 kHz mono WAV file, adjust parameters, and download the results.
 
 ---
 
@@ -47,7 +37,7 @@ npm run wasm:build
 
 This will:
 1. Clone the SDT repository into `wasm/SDT/`
-2. Compile `SDTDemix.c` + `SDTCommon.c` + `SDTFFT.c` plus the wrapper
+2. Compile SDT core, its JSON parser dependency plus a custom wrapper
 3. Output `public/sdt-processor.js` and `public/sdt-processor.wasm`
 
 On next page load the worker detects the WASM module and uses it automatically.
@@ -60,9 +50,9 @@ On next page load the worker detects the WASM module and uses it automatically.
 |-------|-----------|
 | Build | Vite 6 |
 | UI framework | React 19 + TypeScript |
-| Styling | Tailwind CSS v4 |
+| Styling | Tailwind CSS v3 |
 | Audio processing | Web Worker + TypeScript HPSS |
-| Optional WASM | Sound Design Toolkit via Emscripten |
+| WASM | Sound Design Toolkit via Emscripten |
 | WAV I/O | Custom encoder/decoder (zero dependencies) |
 
 ---

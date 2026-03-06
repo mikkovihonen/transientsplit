@@ -1,12 +1,13 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
 /* Smooth range input across browsers */
 input[type="range"] {
   height: 4px;
   border-radius: 2px;
   cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  touch-action: none;
 }
 
 input[type="range"]::-webkit-slider-thumb {
@@ -20,10 +21,52 @@ input[type="range"]::-webkit-slider-thumb {
   margin-top: -5px;
 }
 
+input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #6366f1;
+  cursor: pointer;
+  border: none;
+}
+
 input[type="range"]::-webkit-slider-runnable-track {
   height: 4px;
   border-radius: 2px;
   background: #334155;
+}
+
+input[type="range"]::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: #334155;
+}
+
+/* Larger touch targets on coarse-pointer (touch) devices */
+@media (pointer: coarse) {
+  input[type="range"] {
+    height: 28px;
+    background: transparent;
+  }
+
+  input[type="range"]::-webkit-slider-thumb {
+    width: 28px;
+    height: 28px;
+    margin-top: -12px;
+  }
+
+  input[type="range"]::-moz-range-thumb {
+    width: 28px;
+    height: 28px;
+  }
+
+  input[type="range"]::-webkit-slider-runnable-track {
+    height: 4px;
+  }
+
+  input[type="range"]::-moz-range-track {
+    height: 4px;
+  }
 }
 
 /* Scrollbar */

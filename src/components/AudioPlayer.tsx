@@ -3,9 +3,11 @@ import { useEffect, useRef, useState } from 'react'
 interface Props {
   wavBuffer: ArrayBuffer | null
   loop?: boolean
+  loopStart?: number // fraction [0, 1]
+  loopEnd?: number   // fraction [0, 1]
 }
 
-export function AudioPlayer({ wavBuffer, loop = false }: Props) {
+export function AudioPlayer({ wavBuffer, loop = false, loopStart = 0, loopEnd = 1 }: Props) {
   const [playing, setPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
@@ -36,6 +38,15 @@ export function AudioPlayer({ wavBuffer, loop = false }: Props) {
   // Cleanup on unmount
   useEffect(() => () => stopPlayback(), [])
 
+  // Update loop points on the running source in real-time
+  useEffect(() => {
+    const src = sourceRef.current
+    const buf = audioBufferRef.current
+    if (!src || !buf || !loop) return
+    src.loopStart = loopStart * buf.duration
+    src.loopEnd = loopEnd * buf.duration
+  }, [loop, loopStart, loopEnd])
+
   function getCtx() {
     if (!ctxRef.current || ctxRef.current.state === 'closed') {
       ctxRef.current = new AudioContext()
@@ -61,6 +72,11 @@ export function AudioPlayer({ wavBuffer, loop = false }: Props) {
     const src = ctx.createBufferSource()
     src.buffer = audioBufferRef.current
     src.loop = loop
+    if (loop) {
+      const dur = audioBufferRef.current.duration
+      src.loopStart = loopStart * dur
+      src.loopEnd = loopEnd * dur
+    }
     src.connect(ctx.destination)
     src.onended = () => {
       if (!loop) {

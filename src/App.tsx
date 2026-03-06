@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { DropZone } from './components/DropZone'
 import { ParametersPanel, type FullParams } from './components/ParametersPanel'
-import { ResultCard } from './components/ResultCard'
+import { ResultCard, type LoopControls } from './components/ResultCard'
 import { parseWav, encodeWav, toMono } from './lib/wav'
 import type { ProcessorMessage, ProcessorRequest } from './workers/processor.worker'
 
@@ -19,9 +19,9 @@ interface Results {
 
 // default SDT params exposed to the UI
 const DEFAULT_PARAMS: FullParams = {
-  radius: 4,
-  tonalThresholdDb: -40,
-  noiseThresholdDb: -60,
+  radius: 6,
+  tonalThresholdDb: -4,
+  noiseThresholdDb: -80,
 }
 
 export default function App() {
@@ -34,12 +34,16 @@ export default function App() {
   const workerRef = useRef<Worker | null>(null)
   const basenameRef = useRef('')
   const [params, setParams] = useState<FullParams>(DEFAULT_PARAMS)
+  const [tonalLoop, setTonalLoop] = useState<Omit<LoopControls, 'onChange' | 'duration'>>({
+    enabled: false,
+    start: 0,
+    end: 1,
+  })
 
   // runs the worker on a given sample buffer using current params
   const runWorker = useCallback(
     (samples: Float32Array) => {
       workerRef.current?.terminate()
-      setResults(null)
       setError(null)
       setStatus('processing')
       setProgress(0.02)
@@ -110,16 +114,6 @@ export default function App() {
       try {
         const buf = await file.arrayBuffer()
         const wav = parseWav(buf)
-
-        if (wav.sampleRate !== 48000) {
-          setError(
-            `Expected 48 kHz sample rate but got ${wav.sampleRate} Hz.\n` +
-              'Please convert your file to 48 kHz before processing.',
-          )
-          setStatus('error')
-          return
-        }
-
         samples = toMono(wav)
       } catch (e) {
         setError(`Failed to parse WAV file: ${e instanceof Error ? e.message : String(e)}`)
@@ -167,10 +161,10 @@ export default function App() {
           </div>
         </div>
 
-        {(status === 'done' || status === 'error') && (
+        {(results || status === 'error') && (
           <button
             onClick={reset}
-            className="text-xs text-slate-400 hover:text-slate-200 transition-colors"
+            className="text-xs font-medium px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-slate-100 transition-colors"
           >
             Process another file
           </button>
@@ -180,13 +174,13 @@ export default function App() {
       {/* Main */}
       <main className="flex-1 max-w-3xl w-full mx-auto px-4 py-8 flex flex-col gap-6">
 
-        {/* Drop zone — hide once done */}
-        {status !== 'done' && (
+        {/* Drop zone — only before any results */}
+        {!results && status !== 'done' && (
           <DropZone onFile={process} disabled={busy} />
         )}
 
-        {/* Progress bar */}
-        {busy && (
+        {/* Progress bar — full UI when no results yet, slim bar when reprocessing */}
+        {busy && !results && (
           <div className="flex flex-col gap-2">
             <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
               <div
@@ -197,7 +191,6 @@ export default function App() {
             <p className="text-slate-400 text-sm text-center">{progressMsg}</p>
           </div>
         )}
-
         {/* Error */}
         {status === 'error' && error && (
           <div className="bg-red-950/40 border border-red-800/60 rounded-xl p-4 text-red-300 text-sm whitespace-pre-wrap">
@@ -206,13 +199,13 @@ export default function App() {
         )}
 
         {/* Results */}
-        {status === 'done' && results && (
+        {results && (
           <div className="flex flex-col gap-4">
             <p className="text-slate-400 text-sm text-center">
               Separation complete for <span className="text-slate-200 font-medium">{results.basename}.wav</span>
             </p>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 transition-[filter,opacity] duration-300 ${busy ? 'opacity-40 grayscale' : 'opacity-100 grayscale-0'}`}>
               <ResultCard
                 title="Transient"
                 subtitle="Percussive / attack component"
@@ -230,6 +223,11 @@ export default function App() {
                 samples={results.tonalSamples}
                 wavBuffer={results.tonalWav}
                 filename={`${results.basename}_tonal.wav`}
+                loopControls={{
+                  ...tonalLoop,
+                  duration: results.tonalSamples.length / 48000,
+                  onChange: setTonalLoop,
+                }}
               />
               <ResultCard
                 title="Residual"
@@ -245,7 +243,7 @@ export default function App() {
         )}
 
         {/* Parameters */}
-        {status !== 'processing' && status !== 'loading' && (
+        {(results || (!busy && status !== 'done')) && (
           <ParametersPanel
             params={params}
             onChange={setParams}

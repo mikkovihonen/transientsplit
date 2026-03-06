@@ -1,6 +1,14 @@
 import { WaveformView } from './WaveformView'
 import { AudioPlayer } from './AudioPlayer'
 
+export interface LoopControls {
+  enabled: boolean
+  start: number   // fraction [0, 1]
+  end: number     // fraction [0, 1]
+  duration: number // seconds, for time display
+  onChange: (lc: Omit<LoopControls, 'onChange' | 'duration'>) => void
+}
+
 interface Props {
   title: string
   subtitle: string
@@ -9,8 +17,9 @@ interface Props {
   samples: Float32Array | null
   wavBuffer: ArrayBuffer | null
   filename: string
-  loop?: boolean
+  loopControls?: LoopControls
 }
+
 
 export function ResultCard({
   title,
@@ -20,7 +29,7 @@ export function ResultCard({
   samples,
   wavBuffer,
   filename,
-  loop,
+  loopControls,
 }: Props) {
   const download = () => {
     if (!wavBuffer) return
@@ -60,21 +69,41 @@ export function ResultCard({
 
       {/* Waveform */}
       <div className="bg-slate-950/60 rounded-xl px-3 py-2">
-        <WaveformView samples={samples} color={waveColor} height={72} />
+        <WaveformView
+          samples={samples}
+          color={waveColor}
+          height={72}
+          loopRegion={loopControls?.enabled ? { start: loopControls.start, end: loopControls.end } : null}
+          onLoopChange={loopControls?.enabled
+            ? (region) => loopControls.onChange({ enabled: true, ...region })
+            : undefined}
+        />
       </div>
 
-      {/* Player */}
-      <AudioPlayer wavBuffer={wavBuffer} loop={loop} />
-
-      {/* Loop badge */}
-      {loop && (
-        <div className="flex items-center gap-1.5 text-xs text-emerald-400">
+      {/* Loop toggle */}
+      {loopControls && (
+        <button
+          onClick={() => loopControls.onChange({ ...loopControls, enabled: !loopControls.enabled })}
+          className={`self-start flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+            loopControls.enabled
+              ? 'bg-indigo-600 text-white'
+              : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+          }`}
+        >
           <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
           </svg>
-          Seamless loop ready
-        </div>
+          Loop
+        </button>
       )}
+
+      {/* Player */}
+      <AudioPlayer
+        wavBuffer={wavBuffer}
+        loop={loopControls?.enabled ?? false}
+        loopStart={loopControls?.start}
+        loopEnd={loopControls?.end}
+      />
     </div>
   )
 }
