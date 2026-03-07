@@ -54,18 +54,19 @@ async function loadModule(): Promise<EmModule | null> {
       // Dynamically import the Emscripten glue script from public.
       // In a worker context, we need to use the origin to serve public files from
       // the root, not from the worker's asset directory.
+      // BASE_URL is a relative path (e.g. '/transientsplit/'); resolve it to an
+      // absolute URL so new URL('sdt-processor.js', base) doesn't throw.
+      const envBase: string = ((import.meta as any).env?.BASE_URL as string) || '/'
       let base: string
       if (typeof self !== 'undefined' && typeof self.location !== 'undefined') {
-        // Worker context: use origin + '/' to serve from root
-        base = self.location.origin + '/'
-        console.debug('loadSDT: worker context, base from origin:', base)
+        base = new URL(envBase, self.location.href).href
+        console.debug('loadSDT: worker context, base resolved to:', base)
       } else if (typeof window !== 'undefined') {
-        // Main thread: use document base
-        base = ((import.meta as any).env?.BASE_URL as string) || '/'
-        console.debug('loadSDT: main thread, base from import.meta.env:', base)
+        base = new URL(envBase, window.location.href).href
+        console.debug('loadSDT: main thread, base resolved to:', base)
       } else {
-        base = '/'
-        console.debug('loadSDT: unknown context, using default base: /')
+        base = envBase
+        console.debug('loadSDT: unknown context, base:', base)
       }
       
       const sdtUrl = new URL('sdt-processor.js', base).href
