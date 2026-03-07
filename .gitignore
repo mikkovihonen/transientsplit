@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# WASM build artifacts
+public/
+public/sdt-processor.js
+public/sdt-processor.wasm
+wasm/a.out.js
+wasm/a.out.wasm
+wasm/*.o
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS
+.DS_Store
+Thumbs.db
+
+*.o
+wasm/SDT
