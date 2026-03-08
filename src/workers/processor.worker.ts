@@ -8,6 +8,7 @@ export interface ProcessorRequest {
   audio: Float32Array
   // parameters that control the SDT algorithm
   winSize: number
+  overlap: number
   radius: number
   tonalThresholdDb: number
   noiseThresholdDb: number
@@ -20,7 +21,7 @@ export type ProcessorMessage =
   | { type: 'error'; message: string }
 
 self.onmessage = async (e: MessageEvent<ProcessorRequest>) => {
-  const { audio, winSize, radius, tonalThresholdDb, noiseThresholdDb, normalize } = e.data
+  const { audio, winSize, overlap, radius, tonalThresholdDb, noiseThresholdDb, normalize } = e.data
 
   try {
     post({ type: 'progress', progress: 0.05, message: 'Loading processor...' })
@@ -39,7 +40,7 @@ self.onmessage = async (e: MessageEvent<ProcessorRequest>) => {
     const processWithFallback = async (input: Float32Array): Promise<{ transient: Float32Array; tonal: Float32Array; residual: Float32Array }> => {
       const chunkSize = 60000 // ~1.25 sec at 48kHz
       if (input.length <= chunkSize) {
-        return sdtProcessor.process(input, { winSize, radius, tonalThresholdDb, noiseThresholdDb })
+        return sdtProcessor.process(input, { winSize, overlap, radius, tonalThresholdDb, noiseThresholdDb })
       }
 
       // split into chunks and process

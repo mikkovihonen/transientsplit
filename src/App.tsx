@@ -22,6 +22,7 @@ interface Results {
 // default SDT params exposed to the UI
 const DEFAULT_PARAMS: FullParams = {
   winSize: 2048,
+  overlap: 0.5,
   radius: 6,
   tonalThresholdDb: -4,
   noiseThresholdDb: -80,
@@ -97,6 +98,7 @@ export default function App() {
       const req: ProcessorRequest = {
         audio: samples,
         winSize: params.winSize,
+        overlap: params.overlap,
         radius: params.radius,
         tonalThresholdDb: params.tonalThresholdDb,
         noiseThresholdDb: params.noiseThresholdDb,

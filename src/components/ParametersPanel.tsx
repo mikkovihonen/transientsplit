@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 
 export interface FullParams {
   winSize: number
+  overlap: number
   radius: number
   tonalThresholdDb: number
   noiseThresholdDb: number
@@ -85,6 +86,27 @@ export function ParametersPanel({ params, onChange, disabled }: Props) {
           min={8}
           max={14}
           step={1}
+          format={(v) => String(Math.pow(2, v))}
+          onChange={(v) => set('winSize', Math.pow(2, v))}
+          disabled={disabled}
+        />
+        <Slider
+          label="Overlap"
+          hint="Window overlap (0-1)"
+          value={params.overlap}
+          min={0}
+          max={1}
+          step={0.1}
+          format={(v) => `${(v * 100).toFixed(0)}%`}
+          onChange={(v) => set('overlap', v)}
+          disabled={disabled}
+        />
+        <Slider
+          label="Kernel Radius"
+          hint="Smoothing radius (samples) for structure tensor"
+          value={params.radius}
+          min={1}
+          max={6}
           format={(v) => String(Math.pow(2, v))}
           onChange={(v) => set('winSize', Math.pow(2, v))}
           disabled={disabled}
