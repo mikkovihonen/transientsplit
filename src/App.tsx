@@ -181,7 +181,7 @@ export default function App() {
             </svg>
           </div>
           <div>
-            <h1 className="text-slate-100 font-bold text-lg leading-none">Transient Splitter</h1>
+            <h1 className="text-slate-100 font-bold text-lg leading-none">Transient Split</h1>
             <p className="text-slate-500 text-xs mt-0.5">Split percussive and harmonic components from audio</p>
           </div>
         </div>

@@ -11,9 +11,9 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       manifest: {
-        name: 'Transient Splitter',
+        name: 'Transient Split',
         short_name: 'TransientSplit',
-        description: 'Split percussive and harmonic components from audio — runs entirely in your browser',
+        description: 'Split percussive and harmonic components from audio',
         theme_color: '#0f172a',
         background_color: '#0f172a',
         display: 'standalone',

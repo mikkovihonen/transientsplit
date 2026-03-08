@@ -75,7 +75,7 @@ export function ParametersPanel({ params, onChange, disabled }: Props) {
 
   return (
     <div className="mt-2 px-4 pb-4 pt-3 bg-slate-900 border border-slate-700/60 rounded-xl">
-      <h2 className="text-slate-200 font-medium text-sm">Splitter Parameters</h2>
+      <h2 className="text-slate-200 font-medium text-sm">Split Parameters</h2>
 
       <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
 
