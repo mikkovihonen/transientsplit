@@ -1,0 +1,24 @@
+{
+  "version": 4,
+  "configurations": [
+    {
+      "name": "Linux",
+      "intelliSenseMode": "linux-gcc-x64",
+      "includePath": [
+        "${workspaceFolder}/wasm",
+        "${workspaceFolder}/wasm/SDT/src/SDT",
+        "${workspaceFolder}/wasm/SDT/3rdparty/json-builder",
+        "${workspaceFolder}/wasm/SDT/3rdparty/json-parser"
+      ],
+      "browse": {
+        "path": [
+          "${workspaceFolder}/wasm",
+          "${workspaceFolder}/wasm/SDT/src/SDT",
+          "${workspaceFolder}/wasm/SDT/3rdparty/json-builder",
+          "${workspaceFolder}/wasm/SDT/3rdparty/json-parser"
+        ],
+        "limitSymbolsToIncludedHeaders": true
+      }
+    }
+  ]
+}

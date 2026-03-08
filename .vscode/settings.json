@@ -3,6 +3,9 @@
     "C_Cpp.files.exclude": {
         "**":true,
         "wasm/**":false,
-        "wasm/SDT/**": true
+        "wasm/SDT/**": true,
+        "wasm/SDT/src/SDT/**": false,
+        "wasm/SDT/3rdparty/json-builder/**": false,
+        "wasm/SDT/3rdparty/json-parser/**": false,
     }
 }
