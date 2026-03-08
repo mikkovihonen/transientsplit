@@ -207,7 +207,7 @@ export default function App() {
                     busy ? 'cursor-not-allowed opacity-40' : '',
                   ].join(' ')}
                 >
-                  {mode === 'file' ? 'Upload file' : 'Record sample'}
+                  {mode === 'file' ? 'Choose file' : 'Record sample'}
                 </button>
               ))}
             </div>
