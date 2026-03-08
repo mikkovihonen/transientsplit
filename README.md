@@ -1,4 +1,4 @@
-# Transient Splitter
+# Transient Split
 
 A browser-based audio tool that separates a mono audio sample (from file or recorded from mic) into:
 
