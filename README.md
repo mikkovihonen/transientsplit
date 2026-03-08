@@ -1,6 +1,6 @@
 # Transient Splitter
 
-A browser-based audio tool that separates a mono file into:
+A browser-based audio tool that separates a mono audio sample (from file or recorded from mic) into:
 
 - **Transient** (percussive / attack) component
 - **Tonal** (harmonic / sustained) component
@@ -12,11 +12,23 @@ All processing runs entirely in the browser via a Web Worker.  No audio is ever 
 
 ## How it works
 
-The [Sound Design Toolkit (SDT)](https://github.com/SDT-org/SDT) ships an `SDTDemix` module
-for the same task. Compiling it to WebAssembly with Emscripten yields potentially higher quality
-separation with a different algorithmic approach.
+The application uses [Sound Design Toolkit (SDT)](https://github.com/SDT-org/SDT) `SDTDemix` module compiled in
+WebAssembly to split audio samples into transient, tonal and residual components.
 
-## Building the SDT WASM module
+## Tech stack
+
+| Layer | Technology |
+|-------|-----------|
+| Build | Vite 6 |
+| UI framework | React 19 + TypeScript |
+| Styling | Tailwind CSS v4 |
+| Audio processing | Web Worker + TypeScript HPSS |
+| WASM | Sound Design Toolkit via Emscripten |
+| WAV I/O | Custom encoder/decoder (zero dependencies) |
+
+---
+
+## Build the SDT WASM module
 
 ### Prerequisites
 
@@ -36,24 +48,11 @@ npm run wasm:build
 ```
 
 This will:
-1. Clone the SDT repository into `wasm/SDT/`
+1. Clone the SDT repository into `wasm/SDT/` (excluded in .gitignore)
 2. Compile SDT core, its JSON parser dependency plus a custom wrapper
 3. Output `public/sdt-processor.js` and `public/sdt-processor.wasm`
 
 On next page load the worker detects the WASM module and uses it automatically.
-
----
-
-## Tech stack
-
-| Layer | Technology |
-|-------|-----------|
-| Build | Vite 6 |
-| UI framework | React 19 + TypeScript |
-| Styling | Tailwind CSS v3 |
-| Audio processing | Web Worker + TypeScript HPSS |
-| WASM | Sound Design Toolkit via Emscripten |
-| WAV I/O | Custom encoder/decoder (zero dependencies) |
 
 ---
 
@@ -63,6 +62,7 @@ On next page load the worker detects the WASM module and uses it automatically.
 npm run dev      # start dev server
 npm run build    # type-check + production build
 npm run preview  # preview production build
+npm run deploy   # publish to github pages
 ```
 
 ## License
