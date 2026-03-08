@@ -3,48 +3,63 @@ import { useEffect, useRef, useState } from 'react'
 const CROSSFADE_SEC = 0.05 // 50 ms equal-power crossfade at loop seam
 
 /**
- * Builds a new AudioBuffer covering [loopStartSec, loopEndSec) with a
- * crossfade baked at the seam so the native looping is click-free.
+ * Builds a single combined AudioBuffer with the pre-roll baked in before the
+ * crossfade loop region, so one AudioBufferSourceNode can play everything
+ * gap-free using the native loop mechanism.
  *
- * Technique: overlap-add at the start of the buffer.
- *   dst[0..X-1] = head[i] * sin(t·π/2)² + tail[i] * cos(t·π/2)²
- *   dst[X..L-X-1] = head[i]  (straight copy)
- * Buffer length = L - X, loop from 0 to full duration.
- * At the seam the playhead jumps from dst[L-X-1] → dst[0] which is
- * a single-sample continuation of the tail — no click.
+ * Layout:
+ *   [0 .. handoffFrame)        raw pre-roll (frames 0..B-X-1 of the source)
+ *   [handoffFrame .. total)    crossfade loop region (length outLen = L - X)
+ *
+ * The crossfade loop region uses overlap-add at its start so the native loop
+ * wrap (total → handoffFrame) is click-free:
+ *   loop[0..X-1]  = head * fadeIn + tail * fadeOut   (blends end→start)
+ *   loop[X..L-X)  = head[X..]                         (straight copy)
+ *
+ * Returns the combined buffer and the loop start/end in seconds.
  */
-function createCrossfadeBuffer(
+function createSeamlessBuffer(
   ctx: AudioContext,
   buf: AudioBuffer,
   loopStartSec: number,
   loopEndSec: number,
   crossfadeSec: number,
-): AudioBuffer {
+): { combined: AudioBuffer; loopStartSec: number; loopEndSec: number } {
   const sr = buf.sampleRate
   const A = Math.round(loopStartSec * sr)
   const B = Math.round(loopEndSec * sr)
   const L = B - A
   const X = Math.min(Math.round(crossfadeSec * sr), Math.floor(L / 2))
-  const outLen = L - X
+  const outLen     = L - X        // crossfade loop region length
+  const handoff    = B - X        // frame where pre-roll ends / loop begins
+  const totalLen   = handoff + outLen
 
-  const out = ctx.createBuffer(buf.numberOfChannels, outLen, sr)
+  const combined = ctx.createBuffer(buf.numberOfChannels, totalLen, sr)
   for (let ch = 0; ch < buf.numberOfChannels; ch++) {
     const src = buf.getChannelData(ch)
-    const dst = out.getChannelData(ch)
+    const dst = combined.getChannelData(ch)
 
-    // Overlap-add crossfade region at the start
-    for (let i = 0; i < X; i++) {
-      const t = i / X
-      const fadeIn  = Math.sin(t * Math.PI * 0.5) ** 2  // 0→1
-      const fadeOut = Math.cos(t * Math.PI * 0.5) ** 2  // 1→0
-      dst[i] = src[A + i] * fadeIn + src[B - X + i] * fadeOut
+    // Pre-roll: straight copy of rawBuf[0..handoff-1]
+    for (let i = 0; i < handoff; i++) {
+      dst[i] = src[i]
     }
-    // Straight copy for the rest
+    // Crossfade loop region
+    for (let i = 0; i < X; i++) {
+      const t       = i / X
+      const fadeIn  = Math.sin(t * Math.PI * 0.5) ** 2
+      const fadeOut = Math.cos(t * Math.PI * 0.5) ** 2
+      dst[handoff + i] = src[A + i] * fadeIn + src[B - X + i] * fadeOut
+    }
     for (let i = X; i < outLen; i++) {
-      dst[i] = src[A + i]
+      dst[handoff + i] = src[A + i]
     }
   }
-  return out
+
+  return {
+    combined,
+    loopStartSec: handoff  / sr,
+    loopEndSec:   totalLen / sr,
+  }
 }
 
 interface Props {
@@ -137,64 +152,40 @@ export function AudioPlayer({ wavBuffer, loop = false, loopStart = 0, loopEnd = 
     const startOffset = offsetRef.current
 
     if (loop && seamlessLoop) {
-      // Pre-roll the full buffer, then hand off to a looping crossfade buffer.
-      // The handoff happens CROSSFADE_SEC before loopEnd so cfBuf[0] is the
-      // exact adjacent sample — no click at the transition.
-      const lStartSec    = loopStart * rawBuf.duration
-      const lEndSec      = loopEnd   * rawBuf.duration
-      const cfBuf        = createCrossfadeBuffer(ctx, rawBuf, lStartSec, lEndSec, CROSSFADE_SEC)
-      const handoffAt    = lEndSec - CROSSFADE_SEC   // virtual-timeline position
+      // Build a single combined buffer: [pre-roll][crossfade loop region].
+      // One AudioBufferSourceNode with native loop handles everything gap-free —
+      // no inter-node handoff, so no scheduling gap at the first loop point.
+      const lStartSec = loopStart * rawBuf.duration
+      const lEndSec   = loopEnd   * rawBuf.duration
+      const { combined, loopStartSec: cfStart, loopEndSec: cfEnd } =
+        createSeamlessBuffer(ctx, rawBuf, lStartSec, lEndSec, CROSSFADE_SEC)
+      const loopDur = cfEnd - cfStart
 
+      // Map virtual-timeline offset to position in the combined buffer.
+      // If we're resuming inside the loop phase, wrap into [cfStart, cfEnd).
+      const bufOffset = startOffset < cfStart
+        ? startOffset
+        : cfStart + ((startOffset - cfStart) % loopDur)
+
+      const src = ctx.createBufferSource()
+      src.buffer    = combined
+      src.loop      = true
+      src.loopStart = cfStart
+      src.loopEnd   = cfEnd
+      src.connect(ctx.destination)
+      // startAtRef tracks the virtual timeline (not the buffer offset)
       startAtRef.current = now - startOffset
-
-      if (startOffset >= handoffAt) {
-        // Resuming inside the loop phase
-        const cfOffset = (startOffset - handoffAt) % cfBuf.duration
-        const src = ctx.createBufferSource()
-        src.buffer    = cfBuf
-        src.loop      = true
-        src.loopStart = 0
-        src.loopEnd   = cfBuf.duration
-        src.connect(ctx.destination)
-        src.start(now, cfOffset)
-        sourceRef.current = src
-      } else {
-        // Pre-roll: play rawBuf until handoffAt, then loop cfBuf
-        const timeToHandoff = handoffAt - startOffset
-
-        const srcA = ctx.createBufferSource()
-        srcA.buffer = rawBuf
-        srcA.loop   = false
-        srcA.connect(ctx.destination)
-        srcA.start(now, startOffset)
-        srcA.stop(now + timeToHandoff)
-        sourceRef.current = srcA
-
-        const srcB = ctx.createBufferSource()
-        srcB.buffer    = cfBuf
-        srcB.loop      = true
-        srcB.loopStart = 0
-        srcB.loopEnd   = cfBuf.duration
-        srcB.connect(ctx.destination)
-        srcB.start(now + timeToHandoff, 0)
-        nextSourceRef.current = srcB
-
-        srcA.onended = () => {
-          if (nextSourceRef.current === srcB) {
-            sourceRef.current     = srcB
-            nextSourceRef.current = null
-          }
-        }
-      }
+      src.start(now, bufOffset)
+      sourceRef.current     = src
+      nextSourceRef.current = null
 
       setPlaying(true)
       const tick = () => {
-        if (!sourceRef.current && !nextSourceRef.current) return
+        if (!sourceRef.current) return
         const elapsed  = ctx.currentTime - startAtRef.current
-        const loopDur  = cfBuf.duration
-        const dispTime = elapsed < handoffAt
+        const dispTime = elapsed < cfStart
           ? elapsed
-          : handoffAt + ((elapsed - handoffAt) % loopDur)
+          : cfStart + ((elapsed - cfStart) % loopDur)
         setCurrentTime(dispTime)
         rafRef.current = requestAnimationFrame(tick)
       }
