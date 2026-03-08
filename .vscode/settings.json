@@ -1,0 +1,8 @@
+
+{
+    "C_Cpp.files.exclude": {
+        "**":true,
+        "wasm/**":false,
+        "wasm/SDT/**": true
+    }
+}

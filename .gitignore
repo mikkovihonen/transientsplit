@@ -22,7 +22,6 @@ wasm/*.o
 npm-debug.log*
 
 # Editor
-.vscode/
 .idea/
 *.suo
 *.ntvs*
@@ -36,3 +35,4 @@ Thumbs.db
 
 *.o
 wasm/SDT
+*.tmp
